@@ -1,7 +1,84 @@
-def gen_statement(path, data, features):
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[484]:
+
+
+import numpy as np
+
+
+# In[485]:
+
+
+import interpretableai
+from interpretableai import iai
+
+
+# In[486]:
+
+
+import pandas as pd
+
+
+# In[487]:
+
+
+data = np.random.randint(low = 0, high = 100, size = (1000, 10))
+data = pd.DataFrame(data)
+features = data.iloc[:, 0:8].values
+features = pd.DataFrame(features)
+y = (0.4*data.iloc[:, 8]*0.3*data.iloc[:, 5]).copy()
+diagnosis = y.values
+
+
+# In[488]:
+
+
+features
+
+
+# In[489]:
+
+
+features.columns = [f'x_{i}' for i in range(len(features.columns))]
+
+
+# In[490]:
+
+
+features
+
+
+# In[491]:
+
+
+OCT_H = iai.OptimalTreeClassifier(max_depth = 3, cp = 0.00003)
+OCT_H.fit(features, diagnosis)
+
+
+# In[492]:
+
+
+OCT_H.write_json('learner.json')
+
+
+# In[493]:
+
+
+import json
+f = open('learner.json')
+data = json.load(f)
+
+
+# In[494]:
+
+
+def gen_statement(path):
 
     nodes_on_path = path.split("+")
     statement = ""
+
+
 
     for node_num, node in enumerate(nodes_on_path):
 
@@ -9,10 +86,8 @@ def gen_statement(path, data, features):
 
             prev_node = nodes_on_path[node_num - 1]
 
-            feature = data['lnr']['tree_']['nodes'][int(
-                node)-1]['split_mixed']['parallel_split']['feature']
-            threshold = data['lnr']['tree_']['nodes'][int(
-                node)-1]['split_mixed']['parallel_split']['threshold']
+            feature = data['tree_']['nodes'][int(node)-1]['split_mixed']['parallel_split']['feature']
+            threshold = data['tree_']['nodes'][int(node)-1]['split_mixed']['parallel_split']['threshold']
 
             if int(node) == int(prev_node) + 1:
                 equality = "<"
@@ -26,123 +101,108 @@ def gen_statement(path, data, features):
             else:
                 statement += f"({0} {equality} {threshold})"
 
+            print(int(node))
             if int(node) != max([int(i) for i in nodes_on_path]):
                 statement += " & "
 
     return statement
 
 
-def gen_paths(data):
+# In[498]:
 
-    paths = []
 
-    for child in [1]:
+paths = []
 
-        node_1 = data['lnr']['tree_']['nodes'][child-1]
-        node_id1 = node_1['id']
+for child in [1]:
 
-        children = sorted([node_1['upper_child'], node_1['lower_child']])
+    node_1 = data['tree_']['nodes'][child-1]
+    node_id1 = node_1['id']
+
+    children = sorted([node_1['upper_child'], node_1['lower_child']])
+
+    if children[0] == -2:
+        id = f"{node_id1}"
+        paths.append(id)
+        break
+
+    for child in children:
+        node_2 = data['tree_']['nodes'][child-1]
+        node_id2 = node_2['id']
+        children = sorted([node_2['upper_child'], node_2['lower_child']])
 
         if children[0] == -2:
-            id = f"{node_id1}"
+            id = f"{node_id1}+" + f"{node_id2}"
             paths.append(id)
-            break
 
-        else:
+        for child in children:
 
+            node_3 = data['tree_']['nodes'][child-1]
+            node_id3 = node_3['id']
+            children = sorted([node_3['upper_child'], node_3['lower_child']])
+
+            if children[0] == -2:
+                id = f"{node_id1}+" + f"{node_id2}+" + f"{node_id3}"
+                paths.append(id)
 
             for child in children:
-                node_2 = data['lnr']['tree_']['nodes'][child-1]
-                node_id2 = node_2['id']
-                children = sorted([node_2['upper_child'], node_2['lower_child']])
+
+                node_4 = data['tree_']['nodes'][child-1]
+                node_id4 = node_4['id']
+                children = sorted([node_4['upper_child'], node_4['lower_child']])
 
                 if children[0] == -2:
-                    id = f"{node_id1}+" + f"{node_id2}"
+                    id = f"{node_id1}+" + f"{node_id2}+" + f"{node_id3}+" + f"{node_id4}"
                     paths.append(id)
 
-                else:
-
-                    for child in children:
-
-                        node_3 = data['lnr']['tree_']['nodes'][child-1]
-                        node_id3 = node_3['id']
-                        children = sorted(
-                            [node_3['upper_child'], node_3['lower_child']])
-
-                        if children[0] == -2:
-                            id = f"{node_id1}+" + f"{node_id2}+" + f"{node_id3}"
-                            paths.append(id)
-
-                        else:
-
-                            for child in children:
-
-                                node_4 = data['lnr']['tree_']['nodes'][child-1]
-                                node_id4 = node_4['id']
-                                children = sorted(
-                                    [node_4['upper_child'], node_4['lower_child']])
-
-                                if children[0] == -2:
-                                    id = f"{node_id1}+" + f"{node_id2}+" + \
-                                        f"{node_id3}+" + f"{node_id4}"
-
-                                    paths.append(id)
-
-    if '1' in paths:
-        paths.remove('1')
-
-    return paths
 
 
-def gen_subpaths(paths):
-
-    sub_paths = []
-
-    for path in paths:
-
-        blank_path = ""
-        path_list = path.split("+")
-
-        for i in path_list:
-
-            path_to_append = blank_path + f"{i}"
-            blank_path += f"{i} + "
-
-            sub_paths.append(path_to_append)
-
-    return [i for i in sub_paths if i != '1']
+# In[499]:
 
 
-def gen_features(sub_paths, data, features, orig_feature_size):
-    new_features = features.copy()
-    for path in sub_paths:
-        statement = gen_statement(path, data, features)
-        if statement != '(0 < 0.0)' and statement != '(0 >= 0.0)':
-
-            try:
-                index_feature = features.loc[eval(statement)].index
+for path in paths:
+    statement = gen_statement(path)
+    index_feature = features.loc[eval(statement)].index
+    new_feature = [1  if i in index_feature else 0 for i in range(len(features))]
+    features[statement] = new_feature
 
 
-                new_feature = [1 if i in index_feature else 0 for i in range(len(features))]
-
-                if sum(new_feature) >= 1:
-                    new_features[statement] = new_feature
-
-            except:
-                print(statement)
-    return new_features.iloc[:, orig_feature_size:]
+# In[506]:
 
 
-def do_everything(jason, features, orig_features_size, do_sub_paths = False):
-    paths = gen_paths(jason)
-    sub_paths = gen_subpaths(paths)
-    if do_sub_paths:
+from HR import *
 
-        rule_features = gen_features(
-            sub_paths, jason, features, orig_features_size)
 
-    else:
-        rule_features = gen_features(
-            paths, jason, features, orig_features_size)
+# In[507]:
 
-    return rule_features
+
+model = HolisticRobust(
+                       α = 0.05,
+                       ϵ = 0,
+                       r = 0.1,
+                       classifier = "Linear",
+                       learning_approach = "HR") # Could be ERM either
+
+
+# In[508]:
+
+
+features = features.iloc[:, 8:]
+
+
+# In[509]:
+
+
+features
+
+
+# In[510]:
+
+
+θ, obj_value = model.fit(ξ = (np.matrix(features), np.array(diagnosis)))
+
+
+# In[511]:
+
+
+θ
+
