@@ -11,31 +11,37 @@ def gen_statement(path, data, names):
     for node_num, node in enumerate(nodes_on_path):
 
         if node_num > 0:
-
             prev_node = nodes_on_path[node_num - 1]
+        else:
+            prev_node = -10
 
-            feature = data['lnr']['tree_']['nodes'][int(
+        feature = data['lnr']['tree_']['nodes'][int(
                 node)-1]['split_mixed']['parallel_split']['feature']
-            threshold = data['lnr']['tree_']['nodes'][int(
+        threshold = data['lnr']['tree_']['nodes'][int(
                 node)-1]['split_mixed']['parallel_split']['threshold']
 
-            if int(node) == int(prev_node) + 1:
+        if int(node) == 1 and int(nodes_on_path[1]) == 2:
+            equality = "<"
+
+        elif int(node) == int(prev_node) + 1:
                 equality = "<"
 
-            else:
+        else:
                 equality = ">="
 
-            if feature != 0:
+        if feature != 0:
                 statement += f"(features['{names[feature-1]}'] {equality} {threshold})"
 
-            else:
-                statement += f"({0} {equality} {threshold})"
+        # else:
+        #         statement += f"({0} {equality} {threshold})"
 
-            if int(node) != max([int(i) for i in nodes_on_path]):
+        if int(node) != max([int(i) for i in nodes_on_path]):
                 statement += " & "
 
-    return statement
+    if statement[-2] == "&":
+        statement = statement[:-3]
 
+    return statement
 
 def gen_paths(data):
 
@@ -90,13 +96,80 @@ def gen_paths(data):
                                 if children[0] == -2:
                                     id = f"{node_id1}+" + f"{node_id2}+" + \
                                         f"{node_id3}+" + f"{node_id4}"
-
                                     paths.append(id)
+
+                                else:
+
+                                    for child in children:
+
+                                        node_5 = data['lnr']['tree_']['nodes'][child - 1]
+                                        node_id5 = node_5['id']
+                                        children = sorted(
+                                            [node_5['upper_child'], node_5['lower_child']])
+
+                                        if children[0] == -2:
+                                            id = f"{node_id1}+" + f"{node_id2}+" + \
+                                                 f"{node_id3}+" + f"{node_id4}+" + f"{node_id5}"
+
+                                            paths.append(id)
+
+                                        else:
+
+                                            for child in children:
+
+                                                node_6 = data['lnr']['tree_']['nodes'][child - 1]
+                                                node_id6 = node_6['id']
+                                                children = sorted(
+                                                    [node_6['upper_child'], node_6['lower_child']])
+
+                                                if children[0] == -2:
+                                                    id = f"{node_id1}+" + f"{node_id2}+" + \
+                                                         f"{node_id3}+" + f"{node_id4}+" + f"{node_id5}+" + f"{node_id6}"
+                                                    paths.append(id)
+
 
     if '1' in paths:
         paths.remove('1')
 
     return paths
+
+def reg_results(generated_features, features, diagnosis, features_test, diagnosis_test, gen = True, use_features = True):
+
+    if not use_features:
+        features_to_use = generated_features
+
+    elif gen and use_features:
+        features_to_use = pd.concat([features, generated_features], axis = 1)
+
+    if "Intercept" not in features_to_use.columns:
+        features_to_use.insert(loc = 0, column = 'Intercept', value = [1 for i in range(len(features))])
+
+    reg = linear_model.Ridge(alpha = 1).fit(features_to_use.copy()
+    , diagnosis)
+    predictions_baseline = reg.predict(features_to_use.copy())
+
+    SSE_model = sum((diagnosis - predictions_baseline)**2)
+    SSE_mean = sum((diagnosis - diagnosis.mean())**2)
+
+    IS_R2 = 1 - SSE_model/SSE_mean
+
+    if not use_features:
+        features_test_for_use = gen_test_features(features_test, generated_features, keep_features = False)
+
+    elif gen:
+        features_test_for_use = gen_test_features(features_test, generated_features)
+
+    if "Intercept" not in features_test_for_use.columns:
+        features_test_for_use.insert(loc = 0, column = 'Intercept', value = [1 for i in range(len(features_test))])
+
+    predictions_test = reg.predict(features_test_for_use)
+
+    SSE_model_test = sum((diagnosis_test - predictions_test)**2)
+    SSE_mean_test = sum((diagnosis_test - diagnosis.mean())**2)
+
+    OOS_R2 = 1 - SSE_model_test/SSE_mean_test
+
+    return IS_R2, OOS_R2, predictions_test
 
 
 def gen_subpaths(paths):
@@ -128,16 +201,12 @@ def gen_features(sub_paths, data, features, names):
 def gen_feature(statement, new_features):
     if statement != '(0 < 0.0)' and statement != '(0 >= 0.0)':
 
-        try:
-            index_feature = features.loc[eval(statement)].index
+        index_feature = new_features.loc[eval(statement)].index
 
-            new_feature = [1 if i in index_feature else 0 for i in range(len(features))]
+        new_feature = [1 if i in index_feature else 0 for i in range(len(features))]
 
-            if sum(new_feature) >= 1:
-                new_features[statement] = new_feature
-
-        except:
-            print(statement)
+        if sum(new_feature) >= 1:
+            new_features[statement] = new_feature
 
     return new_features
 
