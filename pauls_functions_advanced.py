@@ -177,8 +177,6 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size,
     rules_cla_oct_h = []
 
     for i in range(1, n_num + 1):
-        print(
-            color.BOLD + '\n\n    ----------------------------------------- section {} -----------------------------------------'.format(i) + color.END)
         if feat_size > 0:
             index = X_train.columns.to_series().sample(feat_size)
             X_train_sample = X_train[index]
@@ -210,7 +208,7 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size,
 
         if Clas_CART == True:
             if complexity_bi == False and depth_bi == False:
-                model = iai.GridSearch(iai.OptimalTreeClassifier(localsearch=False,criterion='mse'),max_depth=depth_grid_bi)
+                model = iai.GridSearch(iai.OptimalTreeClassifier(localsearch=False,criterion='gini'),max_depth=depth_grid_bi)
                 model.fit(X_train_sample, y_train)
             if complexity_bi == False and depth_bi > 0 :
                 model = iai.GridSearch(iai.OptimalTreeClassifier(max_depth = depth_bi,localsearch=False,criterion='gini'))
@@ -221,9 +219,9 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size,
             if complexity_bi > 0 and depth_bi > 0:
                 model = iai.OptimalTreeClassifier(max_depth=depth_bi,cp=complexity_bi,localsearch=False,criterion='gini')
                 model.fit(X_train_sample, y_train)
-            perf_cla_cart += [model.score(X_test_sample , y_test)]
+            perf_cla_cart += [model.score(X_test_sample , y_test,criterion='misclassification')]
             rules_cla_cart += get_optimal_rules(model)
-            print("Classification CART mean performance: ",model.score(X_test_sample , y_test))
+            print("Classification CART mean performance: ",model.score(X_test_sample , y_test,criterion='misclassification'))
             print("\n")
         else:
             perf_cla_cart.append(np.nan)
@@ -263,9 +261,9 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size,
             if complexity_bi > 0 and depth_bi > 0:
                 model = iai.OptimalTreeClassifier(max_depth=depth_bi,cp=complexity_bi)
                 model.fit(X_train_sample, y_train)
-            perf_cla_oct += [model.score(X_test_sample , y_test)]
+            perf_cla_oct += [model.score(X_test_sample , y_test,criterion='misclassification')]
             rules_cla_oct += get_optimal_rules(model)
-            print("Classification OCT performance: ",model.score(X_test_sample , y_test))
+            print("Classification OCT performance: ",model.score(X_test_sample , y_test,criterion='misclassification'))
             print("\n")
         else:
             perf_cla_oct.append(np.nan)
@@ -309,9 +307,9 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size,
                 if complexity_hy > 0 and depth_hy > 0:
                     model = iai.OptimalTreeClassifier(max_depth=depth_hy, cp=complexity_hy, hyperplane_config={'sparsity': 'all'})
                     model.fit(X_train_sample, y_train)
-                perf_cla_oct_h += [model.score(X_test_sample , y_test)]
+                perf_cla_oct_h += [model.score(X_test_sample , y_test,criterion='misclassification')]
                 rules_cla_oct_h += get_optimal_rules(model)
-                print("Classification OCT_H performance: ",model.score(X_test_sample , y_test))
+                print("Classification OCT_H performance: ",model.score(X_test_sample , y_test,criterion='misclassification'))
                 print("\n")
             else:
                 perf_cla_oct_h.append(np.nan)
@@ -334,7 +332,7 @@ def linear_regression_pipeline(X_train, X_test, y_train, y_test):
 
 def log_regression_pipeline(X_train, X_test, y_train, y_test):
 
-    model = LogisticRegression(solver='liblinear', random_state=0)
+    model = LogisticRegression(random_state=0,solver='liblinear', max_iter=1000)
     model.fit(X_train, y_train)
 
     return accuracy_score(y_test, model.predict(X_test))
