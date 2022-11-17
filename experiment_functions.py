@@ -1,3 +1,5 @@
+
+import pandas as pd
 def get_feature_type(x, include_binary=False):
     x.dropna(inplace=True)
     if not check_if_all_integers(x):
