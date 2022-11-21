@@ -1,5 +1,5 @@
-import os
-os.environ['JULIA_NUM_THREADS'] = '20'
+# import os
+# os.environ['JULIA_NUM_THREADS'] = '20'
 from interpretableai import iai
 # iai.add_julia_processes(8)
 import statistics
@@ -19,6 +19,10 @@ from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVC
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.metrics import accuracy_score
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn import tree
+from xgboost import XGBClassifier
 
 
 class color:
@@ -32,6 +36,52 @@ class color:
    BOLD = '\033[1m'
    UNDERLINE = '\033[4m'
    END = '\033[0m'
+
+def get_feature_type(x, include_binary=False):
+    x.dropna(inplace=True)
+    if not check_if_all_integers(x):
+        return 'continuous'
+    else:
+        if x.nunique() > 10:
+            return 'continuous'
+        if include_binary:
+            if x.nunique() == 2:
+                return 'binary'
+        return 'categorical'
+
+def get_target_type(x, include_binary=False):
+    x.dropna(inplace=True)
+    if x.dtype=='float64':
+        return 'continuous'
+    elif x.dtype=='int64':
+        if include_binary:
+            if x.nunique() == 2:
+                return 'binary'
+        return 'categorical'
+    else:
+        raise ValueError("Error getting type")
+
+def check_if_all_integers(x):
+    "check a pandas.Series is made of all integers."
+    return all(float(i).is_integer() for i in x.unique())
+def corr_data_for(df):
+    TARGET_NAME = 'target'
+    feat_names = [col for col in df.columns if col!=TARGET_NAME]
+    types = [get_feature_type(df[col], include_binary=True) for col in feat_names]
+    col = pd.DataFrame(feat_names,types)
+    num_col = col[col.index == 'continuous']
+    bin_col = col[col.index == 'binary']
+    cat_col = col[col.index == 'categorical']
+    cat_col = cat_col[0].tolist()
+    dummy_col = pd.get_dummies(data=df, columns=cat_col)
+    add_col = dummy_col.shape[1] - df.shape[1]
+    if (add_col < df.shape[0] *0.3) & (dummy_col.shape[1] <  df.shape[0]):
+        df = dummy_col
+        df.columns = df.columns.str.replace('.','_',regex=True)
+    else:
+        del df
+        df = pd.DataFrame()
+    return df, num_col, bin_col, cat_col
 
 def get_rules(tree, feature_names):
     tree_ = tree.tree_
@@ -184,16 +234,17 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size, max_iter
             X_test_sample = X_test
 
         if Reg_CART == True:
-            model = iai.GridSearch(iai.OptimalTreeRegressor(localsearch=False, criterion='mse'), max_depth=depth_grid)
-            model.fit(X_train_sample, y_train)
-            model = iai.OptimalTreeRegressor(localsearch=False, criterion='mse', **model.get_best_params())
-            model.fit(X_train_sample, y_train)
-            perf_reg_cart += [model.score(X_test_sample, y_test)]
-            rules_reg_cart += get_optimal_rules(model)
+            # model = iai.GridSearch(iai.OptimalTreeRegressor(localsearch=False, criterion='mse'), max_depth=depth_grid)
+            # model.fit(X_train_sample, y_train)
+            # model = iai.OptimalTreeRegressor(localsearch=False, criterion='mse', **model.get_best_params())
+            # model.fit(X_train_sample, y_train)
+            #
+            # rules_reg_cart += get_optimal_rules(model)
             for depth in depth_grid:
                 model = iai.OptimalTreeRegressor(max_depth=depth,cp=complexity_bi, localsearch=False,criterion='mse')
                 model.fit(X_train_sample, y_train)
                 rules_reg_cart +=  get_optimal_rules(model)
+                perf_reg_cart += [model.score(X_test_sample, y_test)]
             print("Regression CART mean performance: ",model.score(X_test_sample , y_test))
             print("\n")
         else:
@@ -201,16 +252,17 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size, max_iter
 
 
         if Clas_CART == True:
-            model = iai.GridSearch(iai.OptimalTreeClassifier( localsearch=False, criterion='gini'),max_depth=depth_grid)
-            model.fit(X_train_sample, y_train)
-            model = iai.OptimalTreeClassifier( localsearch=False, criterion='gini',**model.get_best_params())
-            model.fit(X_train_sample, y_train)
-            perf_cla_cart += [model.score(X_test_sample, y_test, criterion='misclassification')]
-            rules_cla_cart += get_optimal_rules(model)
+            # model = iai.GridSearch(iai.OptimalTreeClassifier( localsearch=False, criterion='gini'),max_depth=depth_grid)
+            # model.fit(X_train_sample, y_train)
+            # model = iai.OptimalTreeClassifier( localsearch=False, criterion='gini',**model.get_best_params())
+            # model.fit(X_train_sample, y_train)
+            #
+            # rules_cla_cart += get_optimal_rules(model)
             for depth in depth_grid:
                 model = iai.OptimalTreeClassifier(max_depth=depth,cp=complexity_bi,localsearch=False,criterion='gini')
                 model.fit(X_train_sample, y_train)
                 rules_cla_cart += get_optimal_rules(model)
+                perf_cla_cart += [model.score(X_test_sample, y_test, criterion='misclassification')]
             print("Classification CART mean performance: ",model.score(X_test_sample , y_test,criterion='misclassification'))
             print("\n")
         else:
@@ -218,16 +270,17 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size, max_iter
 
 
         if ORT == True:
-            model = iai.GridSearch(iai.OptimalTreeRegressor(), max_depth=depth_grid)
-            model.fit(X_train_sample, y_train)
-            model = iai.OptimalTreeRegressor(**model.get_best_params())
-            model.fit(X_train_sample, y_train)
-            perf_reg_ort += [model.score(X_test_sample, y_test)]
-            rules_reg_ort += get_optimal_rules(model)
+            # model = iai.GridSearch(iai.OptimalTreeRegressor(), max_depth=depth_grid)
+            # model.fit(X_train_sample, y_train)
+            # model = iai.OptimalTreeRegressor(**model.get_best_params())
+            # model.fit(X_train_sample, y_train)
+            #
+            # rules_reg_ort += get_optimal_rules(model)
             for depth in depth_grid:
                 model = iai.OptimalTreeRegressor(max_depth=depth,cp=complexity_bi)
                 model.fit(X_train_sample, y_train)
                 rules_reg_ort += get_optimal_rules(model)
+                perf_reg_ort += [model.score(X_test_sample, y_test)]
             print("Regression ORT performance: ",model.score(X_test_sample , y_test))
             print("\n")
         else:
@@ -235,16 +288,17 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size, max_iter
 
 
         if OCT == True:
-            model = iai.GridSearch(iai.OptimalTreeClassifier(),max_depth=depth_grid)
-            model.fit(X_train_sample, y_train)
-            model = iai.OptimalTreeClassifier(**model.get_best_params())
-            model.fit(X_train_sample, y_train)
-            perf_cla_oct += [model.score(X_test_sample, y_test, criterion='misclassification')]
-            rules_cla_oct += get_optimal_rules(model)
+            # model = iai.GridSearch(iai.OptimalTreeClassifier(),max_depth=depth_grid)
+            # model.fit(X_train_sample, y_train)
+            # model = iai.OptimalTreeClassifier(**model.get_best_params())
+            # model.fit(X_train_sample, y_train)
+            #
+            # rules_cla_oct += get_optimal_rules(model)
             for depth in depth_grid:
                 model = iai.OptimalTreeClassifier(max_depth=depth,cp=complexity_bi)
                 model.fit(X_train_sample, y_train)
                 rules_cla_oct += get_optimal_rules(model)
+                perf_cla_oct += [model.score(X_test_sample, y_test, criterion='misclassification')]
             print("Classification OCT performance: ",model.score(X_test_sample , y_test,criterion='misclassification'))
             print("\n")
         else:
@@ -254,16 +308,17 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size, max_iter
 
         if ORT_H == True:
             if i <= max_iter_hy:
-                model = iai.GridSearch(iai.OptimalTreeRegressor(hyperplane_config={'sparsity': 'all'}),max_depth=depth_grid_hy)
-                model.fit(X_train_sample, y_train)
-                model = iai.OptimalTreeRegressor(hyperplane_config={'sparsity': 'all'}, **model.get_best_params())
-                model.fit(X_train_sample, y_train)
-                rules_reg_ort_h += get_optimal_rules(model)
-                perf_reg_ort_h += [model.score(X_test_sample, y_test)]
+                # model = iai.GridSearch(iai.OptimalTreeRegressor(hyperplane_config={'sparsity': 'all'}),max_depth=depth_grid_hy)
+                # model.fit(X_train_sample, y_train)
+                # model = iai.OptimalTreeRegressor(hyperplane_config={'sparsity': 'all'}, **model.get_best_params())
+                # model.fit(X_train_sample, y_train)
+                # rules_reg_ort_h += get_optimal_rules(model)
+                #
                 for depth in depth_grid_hy:
                     model = iai.OptimalTreeRegressor(max_depth=depth, cp=complexity_hy, hyperplane_config={'sparsity': 'all'})
                     model.fit(X_train_sample, y_train)
                     rules_reg_ort_h += get_optimal_rules(model)
+                    perf_reg_ort_h += [model.score(X_test_sample, y_test)]
                 print("Regression ORT_H performance: ",model.score(X_test_sample , y_test))
                 print("\n")
             else:
@@ -273,16 +328,17 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size, max_iter
 
         if OCT_H == True:
             if i <= max_iter_hy:
-                model = iai.GridSearch(iai.OptimalTreeClassifier(hyperplane_config={'sparsity': 'all'}),max_depth=depth_grid_hy)
-                model.fit(X_train_sample, y_train)
-                model = iai.OptimalTreeClassifier(hyperplane_config={'sparsity': 'all'}, **model.get_best_params())
-                model.fit(X_train_sample, y_train)
-                rules_cla_oct_h += get_optimal_rules(model)
-                perf_cla_oct_h += [model.score(X_test_sample, y_test, criterion='misclassification')]
+                # model = iai.GridSearch(iai.OptimalTreeClassifier(hyperplane_config={'sparsity': 'all'}),max_depth=depth_grid_hy)
+                # model.fit(X_train_sample, y_train)
+                # model = iai.OptimalTreeClassifier(hyperplane_config={'sparsity': 'all'}, **model.get_best_params())
+                # model.fit(X_train_sample, y_train)
+                # rules_cla_oct_h += get_optimal_rules(model)
+                #
                 for depth in depth_grid_hy:
                     model = iai.OptimalTreeClassifier(max_depth=depth, cp=complexity_hy, hyperplane_config={'sparsity': 'all'})
                     model.fit(X_train_sample, y_train)
                     rules_cla_oct_h += get_optimal_rules(model)
+                    perf_cla_oct_h += [model.score(X_test_sample, y_test, criterion='misclassification')]
                 print("Classification OCT_H performance: ",model.score(X_test_sample , y_test,criterion='misclassification'))
                 print("\n")
             else:
@@ -311,17 +367,23 @@ def log_regression_pipeline(X_train, X_test, y_train, y_test):
 
     return accuracy_score(y_test, model.predict(X_test))
 
+def SVM_pipeline(X_train, X_test, y_train, y_test):
 
-def RF_pipeline(X_train, X_test, y_train, y_test):
-
-    model = RandomForestClassifier(random_state=0)
+    model = SVC(random_state=0)
     model.fit(X_train, y_train)
 
     return accuracy_score(y_test, model.predict(X_test))
 
-def SVM_pipeline(X_train, X_test, y_train, y_test):
+def KNN_pipeline(X_train, X_test, y_train, y_test):
 
-    model = SVC(random_state=0)
+    model = KNeighborsClassifier()
+    model.fit(X_train, y_train)
+
+    return accuracy_score(y_test, model.predict(X_test))
+
+def NB_pipeline(X_train, X_test, y_train, y_test):
+
+    model = GaussianNB()
     model.fit(X_train, y_train)
 
     return accuracy_score(y_test, model.predict(X_test))
