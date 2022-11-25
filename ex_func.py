@@ -54,51 +54,6 @@ class color:
    UNDERLINE = '\033[4m'
    END = '\033[0m'
 
-def get_feature_type(x, include_binary=False):
-    x.dropna(inplace=True)
-    if not check_if_all_integers(x):
-        return 'continuous'
-    else:
-        if x.nunique() > 10:
-            return 'continuous'
-        if include_binary:
-            if x.nunique() == 2:
-                return 'binary'
-        return 'categorical'
-
-def get_target_type(x, include_binary=False):
-    x.dropna(inplace=True)
-    if x.dtype=='float64':
-        return 'continuous'
-    elif x.dtype=='int64':
-        if include_binary:
-            if x.nunique() == 2:
-                return 'binary'
-        return 'categorical'
-    else:
-        raise ValueError("Error getting type")
-
-def check_if_all_integers(x):
-    "check a pandas.Series is made of all integers."
-    return all(float(i).is_integer() for i in x.unique())
-def corr_data_for(df):
-    TARGET_NAME = 'target'
-    feat_names = [col for col in df.columns if col!=TARGET_NAME]
-    types = [get_feature_type(df[col], include_binary=True) for col in feat_names]
-    col = pd.DataFrame(feat_names,types)
-    num_col = col[col.index == 'continuous']
-    bin_col = col[col.index == 'binary']
-    cat_col = col[col.index == 'categorical']
-    cat_col = cat_col[0].tolist()
-    dummy_col = pd.get_dummies(data=df, columns=cat_col)
-    add_col = dummy_col.shape[1] - df.shape[1]
-    if (add_col < df.shape[0] *0.3) & (dummy_col.shape[1] <  df.shape[0]):
-        df = dummy_col
-        df.columns = df.columns.str.replace('.','_',regex=True)
-    else:
-        del df
-        df = pd.DataFrame()
-    return df, num_col, bin_col, cat_col
 
 def get_rules(tree, feature_names):
     tree_ = tree.tree_
@@ -202,8 +157,8 @@ def get_optimal_rules(model):
                     t = model.get_parent(t)
     return rules
 def gen_rules(df, rules):
-
-    rules =  [item for sublist in rules for item in sublist]
+    df = df.copy()
+    rules = [item for sublist in rules for item in sublist]
     for rule in rules:
         rule_copy = rule[:-1] + ")"
         rule = rule.replace("feature", "df")
@@ -386,7 +341,7 @@ def linear_regression_pipeline(X_train, X_test, y_train, y_test):
     return model.score(X_test, y_test)
 
 
-def log_regression_pipeline(X_train, X_test, y_train, y_test):
+def LN_pipeline(X_train, X_test, y_train, y_test):
 
     model = LogisticRegression(random_state=0,solver='liblinear', max_iter=1000,penalty='l2')
     model.fit(X_train, y_train)
@@ -423,6 +378,15 @@ def gen_train_and_test_features(rules, names, X_train, X_test):
 
         X_train_rules = gen_rules(X_train, rules)
         X_test_rules = gen_rules(X_test, rules)
+
+        keep = list(X_test_rules.nunique() > 1)
+        X_test_rules = X_test_rules.iloc[:, keep]
+        X_train_rules = X_train_rules.iloc[:, keep]
+
+        keep1 = list(X_train_rules.nunique() > 1)
+        X_test_rules = X_test_rules.iloc[:, keep1]
+        X_train_rules = X_train_rules.iloc[:, keep1]
+
         X_train_only_rules = X_train_rules.loc[:, X_train_rules.columns.str.contains("feature")]
         X_test_only_rules = X_test_rules.loc[:, X_test_rules.columns.str.contains("feature")]
 
