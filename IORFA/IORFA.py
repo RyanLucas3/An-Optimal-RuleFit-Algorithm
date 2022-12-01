@@ -49,7 +49,7 @@ class optimalDecisionTreeClassifier:
         if self.warmstart:
             self._setStart(x, y, a, c, d, l)
         m.optimize()
-        self.optgap = m.MIPGap
+        #self.optgap = m.MIPGap
 
         # get parameters
         self._a = {ind:a[ind].x for ind in a}
@@ -126,12 +126,14 @@ class optimalDecisionTreeClassifier:
         min_dis = self._calMinDist(x)
 
         # objective function
-        obj = gp.quicksum((aux[i] for i in range(self.n)))
+        #obj = gp.quicksum((aux[i] for i in range(self.n)))
         # obj = L.sum() / baseline + self.alpha * d.sum()
-        m.setObjective(obj)
+        #(y - x * beta - gamma * z).T * (y - x * beta - gamma * z)
+        m.setObjective(gp.quicksum(y[i] - gp.quicksum(x[i, p] * beta[p] for p in range(self.p)) - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index) for i in range(self.n))
+        )
 
-        m.addConstrs(aux[i] >= y[i] - gp.quicksum(x[i, p] * beta[p] for p in range(self.p)) - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index) for i in range(self.n))
-        m.addConstrs(aux[i] >= -1*(y[i] - gp.quicksum(beta[p]*x[i] for p in range(self.p)) - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index)) for i in range(self.n))
+        # m.addConstrs(aux[i] >= y[i] - gp.quicksum(x[i, p] * beta[p] for p in range(self.p)) - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index) for i in range(self.n))
+        # m.addConstrs(aux[i] >= -1*(y[i] - gp.quicksum(beta[p]*x[i] for p in range(self.p)) - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index)) for i in range(self.n))
 
         # constraints
         # (20)
