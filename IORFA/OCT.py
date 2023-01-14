@@ -9,9 +9,9 @@ import gurobipy as gp
 from gurobipy import GRB
 from sklearn import tree
 
-class optimalDecisionTreeClassifier:
+class OptimalRuleFitAlgorithm:
     """
-    optimal classification tree
+    Optimal RuleFit Algorithm
     """
     def __init__(self, max_depth=3, min_samples_split=2, alpha=0, warmstart=True, timelimit=600, output=True):
         self.max_depth = max_depth
