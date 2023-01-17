@@ -113,11 +113,13 @@ class optimalDecisionTreeClassifier:
         z = m.addVars(self.n, self.l_index, vtype=GRB.BINARY, name='z') # leaf node assignment
         l = m.addVars(self.l_index, vtype=GRB.BINARY, name='l') # leaf node activation
         beta = m.addVars(self.p, vtype=GRB.CONTINUOUS, name='beta') # beta
-        gamma = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='beta') # beta
+        gamma = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='gamma') # gamma
         L = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='L') # leaf node misclassified
         M = m.addVars(self.labels, self.l_index, vtype=GRB.CONTINUOUS, name='M') # leaf node samples with label
         N = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='N') # leaf node samples
         aux = m.addVars(self.n, vtype = GRB.CONTINUOUS, name = 'aux')
+        q = m.addVars(self.n, vtype=GRB.CONTINUOUS, name='gamma_aux')
+
 
         # calculate baseline accuracy
         baseline = self._calBaseline(y)
@@ -133,6 +135,14 @@ class optimalDecisionTreeClassifier:
 
         m.addConstrs(aux[i] >= (y[i] - gp.quicksum(x[i, p] * beta[p] for p in range(self.p)) - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index)) for i in range(self.n))
         m.addConstrs(aux[i] >= -1*(y[i] - gp.quicksum(x[i, p] * beta[p] for p in range(self.p)) - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index)) for i in range(self.n))
+
+        m.addConstrs(-1*z[i,t] <= q <= 1*z[i,t]
+        m.addConstrs(q <= 1 * z[i, t]
+        L(1−d)≤x−y≤U(1−d)
+
+
+
+
         # constraints
         # (20)
         m.addConstrs(L[t] >= N[t] - M[k,t] - self.n * (1 - c[k,t]) for t in self.l_index for k in self.labels)

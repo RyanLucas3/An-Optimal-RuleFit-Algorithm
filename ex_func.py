@@ -333,12 +333,13 @@ def generate_tree(X_train, y_train, X_test , y_test , n_num, feat_size, max_iter
     return  models, performance
 
 
-def linear_regression_pipeline(X_train, X_test, y_train, y_test):
+def LR_pipeline(X_train, X_test, y_train, y_test):
 
     model = LinearRegression()
     model.fit(X_train, y_train)
+    coeff = [model.intercept_,model.coef_]
 
-    return model.score(X_test, y_test)
+    return model.score(X_test, y_test),coeff
 
 
 def LN_pipeline(X_train, X_test, y_train, y_test):
