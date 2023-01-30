@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # coding: utf-8
-# author: Bo Tang
 
 from collections import namedtuple
 import numpy as np
