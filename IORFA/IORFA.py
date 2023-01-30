@@ -1,23 +1,20 @@
 #!/usr/bin/env python
 # coding: utf-8
-# author: Bo Tang
 
 from collections import namedtuple
 import numpy as np
 from scipy import stats
 import gurobipy as gp
 from gurobipy import GRB
-from sklearn import tree
 
-class optimalDecisionTreeClassifier:
+class OptimalRuleFitAlgorithm:
     """
-    optimal classification tree
+    Optimal RuleFit Algorithm by Paul Roeseler and Ryan Lucas
     """
-    def __init__(self, max_depth=3, min_samples_split=2, alpha=0, warmstart=True, timelimit=600, output=True):
+    def __init__(self, max_depth=3, min_samples_split=2, alpha=0, timelimit=600, output=True):
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
         self.alpha = alpha
-        self.warmstart = warmstart
         self.timelimit = timelimit
         self.output = output
         self.trained = False
@@ -41,17 +38,15 @@ class optimalDecisionTreeClassifier:
         self.labels = np.unique(y)
 
         # solve MIP
-        self.m, self.a, self.b, self.d, self.l, self.beta, self.gamma = self._buildMIP(x, y)
-        
-        if self.warmstart:
-            self._setStart(x, y, self.a, self.d, self.l)
-
+        self.m, self.a, self.b, self.d, self.l, self.beta, self.gamma, self.c = self._buildMIP(x, y)
+ 
         self.m.optimize()
         self.optgap = self.m.MIPGap
 
         # get parameters
         self._a = {ind:self.a[ind].x for ind in self.a}
         self._b = {ind:self.b[ind].x for ind in self.b}
+        self._c = {ind:self.c[ind].x for ind in self.c}
         self._d = {ind:self.d[ind].x for ind in self.d}
 
         self.trained = True
@@ -105,14 +100,13 @@ class optimalDecisionTreeClassifier:
         # variables
         a = m.addVars(self.p, self.b_index, vtype=GRB.BINARY, name='a') # splitting feature
         b = m.addVars(self.b_index, vtype=GRB.CONTINUOUS, name='b') # splitting threshold
-        # c = m.addVars(self.labels, self.l_index, vtype=GRB.BINARY, name='c') # node prediction
+        c = m.addVars(self.labels, self.l_index, vtype=GRB.BINARY, name='c') # node prediction
         d = m.addVars(self.b_index, vtype=GRB.BINARY, name='d') # splitting option
         z = m.addVars(self.n, self.l_index, vtype=GRB.BINARY, name='z') # leaf node assignment
         l = m.addVars(self.l_index, vtype=GRB.BINARY, name='l') # leaf node activation
-        beta = m.addVars(self.p, vtype=GRB.CONTINUOUS, name='beta') 
-        varkappa = m.addVars(self.n, self.l_index, vtype=GRB.CONTINUOUS, name='varkappa') 
-        gamma = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='gamma') 
-        lamb = m.addVars(self.n, vtype=GRB.CONTINUOUS, name='lambda') 
+        beta = m.addVars(self.p, vtype=GRB.CONTINUOUS, name='beta') # beta
+        gamma = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='beta') # beta
+        lamb = m.addVars(self.n, vtype=GRB.CONTINUOUS, name='lambda') # beta
         M = m.addVars(self.labels, self.l_index, vtype=GRB.CONTINUOUS, name='M') # leaf node samples with label
         N = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='N') # leaf node samples
         aux = m.addVars(self.n, vtype = GRB.CONTINUOUS, name = 'aux')
@@ -123,40 +117,21 @@ class optimalDecisionTreeClassifier:
         # calculate minimum distance
         min_dis = self._calMinDist(x)
 
-        objExp = gp.QuadExpr()
+        
 
-        self.Upper = 10000
-        self.Lower = -10000
+        objExp = gp.QuadExpr()
 
         # add single terms using add
         for i in range(self.n):
             var = y[i] - gp.quicksum(x[i, p] * beta[p] for p in range(self.p)) - lamb[i]
-
             objExp.add(var * var) 
             
-            m.addConstr(lamb[i] == gp.quicksum(varkappa[i, t] for t in self.l_index))
-            
-            for t in range(self.l):
-                m.addConstr(self.Lower*z[i, t] <= varkappa[i, t])
-                m.addConstr(varkappa[i, t] <= self.Upper*z[i, t])
-                m.addConstr(self.Lower*(1-z[i, t]) <= gamma[t]-varkappa[i, t])
-                m.addConstr(gamma[t]-varkappa[i, t] <= self.Upper*(1-z[i, t]))
-                
-            # gp.quicksum(gamma[t]*z[i, t] for t in self.l_index))
+            m.addConstr(lamb[i] == gp.quicksum(gamma[t]*z[i, t] for t in self.l_index))
 
         m.setObjective(objExp)
 
-        # m.addConstrs(aux[i] >= (y[i] - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index)) for i in range(self.n))
-        # m.addConstrs(aux[i] >= -1*(y[i] - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index)) for i in range(self.n))
-
-        # m.addConstrs(aux[i] >= (y[i] - gp.quicksum(x[i, p] * beta[p] for p in range(self.p)) - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index)) for i in range(self.n))
-        # m.addConstrs(aux[i] >= -1*(y[i] - gp.quicksum(x[i, p] * beta[p] for p in range(self.p)) - gp.quicksum(gamma[t]*z[i, t] for t in self.l_index)) for i in range(self.n))
-
-        # (16)
         m.addConstrs(z.sum('*', t) == N[t] for t in self.l_index)
-        # (18)
-        # m.addConstrs(c.sum('*', t) == l[t] for t in self.l_index)
-        # (13) and (14)
+ 
         for t in self.l_index:
             left = (t % 2 == 0)
             ta = t // 2
@@ -189,7 +164,7 @@ class optimalDecisionTreeClassifier:
         # (5)
         m.addConstrs(d[t] <= d[t//2] for t in self.b_index if t != 1)
 
-        return m, a, b, d, l, beta, gamma
+        return m, a, b, d, l, beta, gamma, c
 
     @staticmethod
     def _calBaseline(y):
@@ -218,65 +193,7 @@ class optimalDecisionTreeClassifier:
             # min distance
             min_dis.append(np.min(dis) if np.min(dis) else 1)
         return min_dis
-
-    def _setStart(self, x, y, a, d, l):
-        """
-        set warm start from CART
-        """
-        # train with CART
-        if self.min_samples_split > 1:
-            clf = tree.DecisionTreeRegressor(max_depth=self.max_depth, min_samples_split=self.min_samples_split)
-        else:
-            clf = tree.DecisionTreeRegressor(max_depth=self.max_depth)
-        
-        clf.fit(x, y)
-
-        # get splitting rules
-        rules = self._getRules(clf)
-
-        # fix branch node
-        for t in self.b_index:
-            # not split
-            if rules[t].feat is None or rules[t].feat == tree._tree.TREE_UNDEFINED:
-                d[t].start = 0
-                for f in range(self.p):
-                    a[f,t].start = 0
-            # split
-            else:
-                d[t].start = 1
-                for f in range(self.p):
-                    if f == int(rules[t].feat):
-                        a[f,t].start = 1
-                    else:
-                        a[f,t].start = 0
-
-        # fix leaf nodes
-        for t in self.l_index:
-            # terminate early
-            if rules[t].value is None:
-                l[t].start = int(t % 2)
-                # flows go to right
-                # if t % 2:
-                #     t_leaf = t
-                #     while rules[t].value is None:
-                #         t //= 2
-                #     for k in self.labels:
-                #         if k == np.argmax(rules[t].value):
-                #             c[k, t_leaf].start = 1
-                #         else:
-                #             c[k, t_leaf].start = 0
-                # nothing in left
-                # else:
-                #     for k in self.labels:
-                #         c[k, t].start = 0
-            # terminate at leaf node
-            else:
-                l[t].start = 1
-                # for k in self.labels:
-                #     if k == np.argmax(rules[t].value):
-                #         c[k, t].start = 1
-                #     else:
-                #         c[k, t].start = 0
+     
 
     def _getRules(self, clf):
         """
