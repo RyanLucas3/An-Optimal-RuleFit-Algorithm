@@ -1,20 +1,37 @@
 #!/usr/bin/env python
 # coding: utf-8
+# author: Bo Tang
 
 from collections import namedtuple
 import numpy as np
 from scipy import stats
 import gurobipy as gp
+import pandas as pd
 from gurobipy import GRB
+from sklearn import tree
+from sklearn.linear_model import LinearRegression
 
-class OptimalRuleFitAlgorithm:
+def convert_dataframe_to_matrix(data):
+    if isinstance(data, pd.DataFrame):
+        matrix = data.to_numpy()
+        return matrix
+
+    elif isinstance(data, pd.Series):
+        array = data.to_numpy()
+        return array
+    
+    else:
+        return data
+    
+class optimalDecisionTreeClassifier:
     """
-    Optimal RuleFit Algorithm by Paul Roeseler and Ryan Lucas
+    optimal classification tree
     """
-    def __init__(self, max_depth=3, min_samples_split=2, alpha=0, timelimit=600, output=True):
+    def __init__(self, max_depth=3, min_samples_split=2, alpha=0, warmstart=True, timelimit=600, output=True):
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
         self.alpha = alpha
+        self.warmstart = warmstart
         self.timelimit = timelimit
         self.output = output
         self.trained = False
@@ -25,7 +42,7 @@ class OptimalRuleFitAlgorithm:
         self.b_index = self.n_index[:-2**self.max_depth] # branch nodes
         self.l_index = self.n_index[-2**self.max_depth:] # leaf nodes
 
-    def fit(self, x, y):
+    def fit(self, x, y, scaled = False):
         """
         fit training data
         """
@@ -37,17 +54,30 @@ class OptimalRuleFitAlgorithm:
         # labels
         self.labels = np.unique(y)
 
+        # scale data
+
+        x, y = convert_dataframe_to_matrix(x), convert_dataframe_to_matrix(y)
+
+        if not scaled:
+            self.scales = np.max(x, axis=0)
+            self.scales[self.scales == 0] = 1
+            x = x/self.scales
+
         # solve MIP
-        self.m, self.a, self.b, self.d, self.l, self.beta, self.gamma, self.c = self._buildMIP(x, y)
- 
-        self.m.optimize()
-        self.optgap = self.m.MIPGap
+        m, a, b, c, d, l, beta, gamma = self._buildMIP(x, y)
+        if self.warmstart:
+            self._setStart(x, y, a, d, beta)
+
+        m.optimize()
+        self.optgap = m.MIPGap
 
         # get parameters
-        self._a = {ind:self.a[ind].x for ind in self.a}
-        self._b = {ind:self.b[ind].x for ind in self.b}
-        self._c = {ind:self.c[ind].x for ind in self.c}
-        self._d = {ind:self.d[ind].x for ind in self.d}
+        self._a = {ind:a[ind].x for ind in a}
+        self._b = {ind:b[ind].x for ind in b}
+        self._c = {ind:c[ind].x for ind in c}
+        self._d = {ind:d[ind].x for ind in d}
+        self.beta = {ind:beta[ind].x for ind in beta}
+        self.gamma = {ind:gamma[ind].x for ind in gamma}
 
         self.trained = True
 
@@ -105,8 +135,9 @@ class OptimalRuleFitAlgorithm:
         z = m.addVars(self.n, self.l_index, vtype=GRB.BINARY, name='z') # leaf node assignment
         l = m.addVars(self.l_index, vtype=GRB.BINARY, name='l') # leaf node activation
         beta = m.addVars(self.p, vtype=GRB.CONTINUOUS, name='beta') # beta
-        gamma = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='beta') # beta
+        gamma = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='gamma') # beta
         lamb = m.addVars(self.n, vtype=GRB.CONTINUOUS, name='lambda') # beta
+        # L = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='L') # leaf node misclassified
         M = m.addVars(self.labels, self.l_index, vtype=GRB.CONTINUOUS, name='M') # leaf node samples with label
         N = m.addVars(self.l_index, vtype=GRB.CONTINUOUS, name='N') # leaf node samples
         aux = m.addVars(self.n, vtype = GRB.CONTINUOUS, name = 'aux')
@@ -116,22 +147,22 @@ class OptimalRuleFitAlgorithm:
 
         # calculate minimum distance
         min_dis = self._calMinDist(x)
-
         
-
         objExp = gp.QuadExpr()
 
-        # add single terms using add
+        # objective function
         for i in range(self.n):
             var = y[i] - gp.quicksum(x[i, p] * beta[p] for p in range(self.p)) - lamb[i]
             objExp.add(var * var) 
             
             m.addConstr(lamb[i] == gp.quicksum(gamma[t]*z[i, t] for t in self.l_index))
 
+        objExp.add(self.alpha * d.sum())
         m.setObjective(objExp)
 
         m.addConstrs(z.sum('*', t) == N[t] for t in self.l_index)
- 
+
+        # (13) and (14)
         for t in self.l_index:
             left = (t % 2 == 0)
             ta = t // 2
@@ -150,7 +181,6 @@ class OptimalRuleFitAlgorithm:
                                  for i in range(self.n))
                 left = (ta % 2 == 0)
                 ta //= 2
-
         # (8)
         m.addConstrs(z.sum(i, '*') == 1 for i in range(self.n))
         # (6)
@@ -164,14 +194,14 @@ class OptimalRuleFitAlgorithm:
         # (5)
         m.addConstrs(d[t] <= d[t//2] for t in self.b_index if t != 1)
 
-        return m, a, b, d, l, beta, gamma, c
+        return m, a, b, c, d, l, beta, gamma
 
     @staticmethod
     def _calBaseline(y):
         """
         obtain baseline accuracy by simply predicting the most popular class
         """
-        mode = stats.mode(y, keepdims = True)[0][0]
+        mode = stats.mode(y)[0][0]
         return np.sum(y == mode)
 
     @staticmethod
@@ -193,7 +223,44 @@ class OptimalRuleFitAlgorithm:
             # min distance
             min_dis.append(np.min(dis) if np.min(dis) else 1)
         return min_dis
-     
+
+    def _setStart(self, x, y, a, d, beta):
+        """
+        set warm start from CART for regression tree
+        """
+
+        reg_model = LinearRegression()
+        reg_model.fit(x, y)
+
+        # Warm-start beta with regression coefficients
+        beta.start = reg_model.coef_
+
+        # Train with CART
+        if self.min_samples_split > 1:
+            clf = tree.DecisionTreeRegressor(max_depth=self.max_depth, min_samples_split=self.min_samples_split)
+        else:
+            clf = tree.DecisionTreeRegressor(max_depth=self.max_depth)
+        clf.fit(x, y)
+
+        # Get splitting rules
+        rules = self._getRules(clf)
+
+        # Fix branch node
+        for t in self.b_index:
+            # Not split
+            if rules[t].feat is None or rules[t].feat == tree._tree.TREE_UNDEFINED:
+                d[t].start = 0
+                for f in range(self.p):
+                    a[f, t].start = 0
+            # Split
+            else:
+                d[t].start = 1
+                for f in range(self.p):
+                    if f == int(rules[t].feat):
+                        a[f, t].start = 1
+                    else:
+                        a[f, t].start = 0
+
 
     def _getRules(self, clf):
         """
